@@ -1,0 +1,61 @@
+# ワークフローの名前。Actions タブや PR のチェック欄に表示される
+name: CI
+
+# いつ動かすか
+on:
+  pull_request:          # PR を作った・更新したとき
+  push:
+    branches: [main]     # main にマージされたとき
+  workflow_dispatch:     # Actions タブから手動でも動かせるように
+
+# GITHUB_TOKEN の権限を最小にする（コードを読むだけ）
+permissions:
+  contents: read
+
+# 同じブランチで新しい push があったら、古い実行は止める（時間の節約）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ジョブ1: コードの書き方のチェック（速いので先に失敗に気づける）
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4          # リポジトリのコードを取ってくる
+      - uses: actions/setup-python@v5      # Python を入れる
+        with:
+          python-version: "3.13"
+          cache: pip                       # pip のダウンロードをキャッシュして速くする
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: ruff check（lint）
+        run: ruff check .
+      - name: ruff format --check（整形されているか）
+        run: ruff format --check .
+
+  # ジョブ2: テスト。lint とは並列に動く
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false                     # 1 つのバージョンが落ちても、他は最後まで動かす
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]   # 3 バージョンで同時にテストする
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: 依存関係とパッケージを入れる
+        run: pip install -r requirements-dev.txt -e .
+      - name: テストとカバレッジ
+        # カバレッジが pyproject.toml の fail_under（90%）を下回ると失敗する
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+      - name: カバレッジレポートを保存
+        if: matrix.python-version == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
