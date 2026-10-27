@@ -8,7 +8,7 @@ def grade(score: int) -> str:
     if not 0 <= score <= 100:
         raise ValueError("score は 0〜100 で指定してください")
 
-    if score >= 80:
+    if score > 80:
         return "A"
     if score >= 60:
         return "B"
